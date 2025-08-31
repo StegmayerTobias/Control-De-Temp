@@ -1,2 +1,1 @@
-# Control-De-Temp
-Sistema de control de temperatura con Raspberry Pico 2 W
+# Sistema de control de temperatura con Raspberry Pico 2 W
