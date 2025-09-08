@@ -6,14 +6,7 @@ import time
 import pwmio
 import digitalio
 import math
-# import wifi
 
-
-# SSID = "Familiastegmayer"
-# PASSWORD = "Canela2024"
-
-# wifi.radio.connect(SSID, PASSWORD)
-# print("Conectado a Wi-Fi:", wifi.radio.ipv4_address)
 
 DHT_PIN = board.GP15
 IR_PIN = board.GP16
@@ -29,8 +22,10 @@ CODE = []
 dht_sensor = adafruit_dht.DHT11(DHT_PIN)
 ir_sensor = pulseio.PulseIn(IR_PIN, maxlen=120, idle_state=True)
 buzzer = pwmio.PWMOut(BUZZER_PIN, duty_cycle=0,
-                      frequency=1000, variable_frequency=True)
-led = pwmio.PWMOut(LED_PIN, duty_cycle=0, frequency=1000)
+                      frequency=800, variable_frequency=True)
+
+led = digitalio.DigitalInOut(LED_PIN)
+led.direction = digitalio.Direction.OUTPUT
 
 relay = digitalio.DigitalInOut(RELAY_PIN)
 relay.direction = digitalio.Direction.OUTPUT
@@ -38,33 +33,6 @@ decoder = adafruit_irremote.GenericDecode()
 
 warning = False
 alarm_on = True
-
-led_start_time = None
-led_duration = 2.0
-led_flashes = 4
-led_active = False
-
-
-def start_led(duration=2.0, flashes=4):
-    global led_start_time, led_duration, led_flashes, led_active
-    led_start_time = time.monotonic()
-    led_duration = duration
-    led_flashes = flashes
-    led_active = True
-
-
-def update_led():
-    global led_active
-    if not led_active:
-        return
-    t = time.monotonic() - led_start_time
-    if t >= led_duration:
-        led.duty_cycle = 0
-        led_active = False
-    else:
-        frequency = led_flashes / led_duration
-        valor = (math.sin(2 * math.pi * frequency * t) + 1) / 2 * 0.5
-        led.duty_cycle = int(valor * 65535)
 
 
 def beep(frequency=880, duration=0.2):
@@ -74,15 +42,32 @@ def beep(frequency=880, duration=0.2):
     buzzer.duty_cycle = 0
 
 
-def decode_ir_signals(p):
-    codes = decoder.decode_bits(p)
-    return codes
-
-
 def activate_alarm_sound():
     beep()
     time.sleep(0.2)
     beep()
+
+last_beep = time.monotonic()
+beep_duration = 0.2  # duración del beep en segundos
+beep_active = False
+
+def activate_alarm_nonblocking():
+    """
+    Hace que la alarma suene un beep cada 2 segundos sin bloquear el programa.
+    """
+    global last_beep, beep_active
+    now = time.monotonic()
+    
+    if not beep_active and now - last_beep >= 2.0:
+        # encender buzzer
+        buzzer.duty_cycle = 2**15
+        last_beep = now
+        beep_active = True
+
+    elif beep_active and now - last_beep >= beep_duration:
+        # apagar buzzer
+        buzzer.duty_cycle = 0
+        beep_active = False
 
 
 def alarm_turnOnOff_sound():
@@ -92,15 +77,6 @@ def alarm_turnOnOff_sound():
     beep(frequency=800, duration=0.06)
 
 
-def turnOn_led():
-    led.duty_cycle = int(0.5 * 65535)
-
-
-def turnOff_led():
-
-    led.duty_cycle = 0
-
-
 def handle_ir_signal():
     global alarm_on, warning
     try:
@@ -108,7 +84,7 @@ def handle_ir_signal():
         received_code = decoder.decode_bits(pulses)
         if received_code:
             hex_code = ''.join(["%02X" % x for x in received_code])
-
+            
             if len(CODE) == 0 and hex_code == "00FD807F":
                 CODE.append(hex_code)
 
@@ -128,21 +104,26 @@ def handle_ir_signal():
                 CODE.clear()
 
             CODE_CONCAT = "".join(CODE)
-            if CODE_CONCAT == IR_CODE_TURNOFF:
+            if CODE_CONCAT == IR_CODE_TURNOFF and warning:
                 print(f"Recibido: {CODE_CONCAT} | Alarma apagada")
-                if warning:
-                    alarm_turnOnOff_sound()
-                    warning = False
-                    alarm_on = False
-                    CODE.clear()
-            elif CODE_CONCAT == IR_CODE_RESET:
+
+                CODE.clear()
+                alarm_turnOnOff_sound()
+                warning = False
+                alarm_on = False
+                    
+            elif CODE_CONCAT == IR_CODE_RESET and not warning:
                 print(f"Recibido: {CODE_CONCAT} | Alarma reseteada")
+                CODE.clear()
+                led.value = False
                 alarm_on = True
 
             else:
-                print(f"Recibido: {CODE_CONCAT} ")
-                # print(
-                #     f"Boton desconocido. Presione OFF para apagar o RESET para reiniciar la alarma.")
+                if CODE_CONCAT == "" and alarm_on:
+                    print(f"Código invalido | alarma activa")
+                elif CODE_CONCAT == "" and not alarm_on:
+                    print(f"Código invalido | alarma inactiva")
+             
 
     except adafruit_irremote.IRNECRepeatException:
         pass
@@ -150,45 +131,69 @@ def handle_ir_signal():
         print("No se detectó una señal IR válida.")
 
 
+last_relay_state = None  
+
 def check_temp_and_humidity():
-    global alarm_on, warning
+    global alarm_on, warning, last_relay_state
     try:
         temperature_c = dht_sensor.temperature
         humidity = dht_sensor.humidity
 
-        relay.value = temperature_c > 27 or humidity > 80
+        # Estado actual del relé según temperatura/humedad
+        current_relay_state = temperature_c > 20 or humidity > 80
+        relay.value = current_relay_state
 
-        if relay.value and alarm_on:
-            warning = True
-        elif not relay.value and warning:
-            warning = False
-            alarm_turnOnOff_sound()
+        # Detectar cambio de estado o primera lectura
+        if current_relay_state != last_relay_state or last_relay_state is None:
+            if current_relay_state and alarm_on:
+                # Condición de alerta
+                if temperature_c > 20 and humidity > 70:
+                    print(f"Temperatura mayor a 27 °C y humedad mayor a 80% |  T: {temperature_c:.1f}°C | H: {humidity}% | Ventilador ON")
+                elif humidity > 70:
+                    print(f"Temperatura mayor a 27 °C |  T: {temperature_c:.1f}°C | H: {humidity}% | Ventilador ON")
+                warning = True
+            elif not current_relay_state and (warning or last_relay_state is None):
+                # Condición estable
+                warning = False
+                alarm_turnOnOff_sound()
+                print(f"Temperatura y humedad estables |  T: {temperature_c:.1f}°C | H: {humidity}% | Ventilador OFF")
 
-        print(f"Temp: {temperature_c:.1f} C  |  Humidity: {humidity}% ")
+        # Actualizo el estado anterior
+        last_relay_state = current_relay_state
 
     except RuntimeError as error:
         print(error.args[0])
-
     except Exception as error:
         dht_sensor.exit()
         raise error
 
 
+last_toggle = time.monotonic()  
+led_state = False
+
+def activate_led(interval=1.0):
+    """Alterna el LED cada 'interval' segundos sin bloquear el programa."""
+    global led_state, last_toggle
+    now = time.monotonic()
+    if now - last_toggle >= interval:
+        led_state = not led_state
+        led.value = led_state
+        last_toggle = now
+    
+
 print("-----------------------------")
 print("Sistema de monitoreo iniciado")
 print("-----------------------------")
 while True:
-
-    check_temp_and_humidity()
-
-    if warning:
-        activate_alarm_sound()
-        start_led(duration=2.0, flashes=4)
-
-    update_led()  # actualiza el LED cada it
+    
 
     if len(ir_sensor) > 0:
         handle_ir_signal()
 
-    time.sleep(2.0)
-eracion
+    check_temp_and_humidity()
+
+    if warning:
+        activate_alarm_nonblocking()
+
+    if not alarm_on:
+        activate_led(interval=1.0)
