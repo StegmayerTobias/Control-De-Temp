@@ -18,7 +18,6 @@ IR_CODE_TURNOFF = '00FD807F00FD40BF00FDC03F'
 IR_CODE_RESET = '00FDB04F00FDB04F'
 CODE = []
 
-
 dht_sensor = adafruit_dht.DHT11(DHT_PIN)
 ir_sensor = pulseio.PulseIn(IR_PIN, maxlen=120, idle_state=True)
 buzzer = pwmio.PWMOut(BUZZER_PIN, duty_cycle=0,
@@ -32,6 +31,7 @@ decoder = adafruit_irremote.GenericDecode()
 
 warning = False
 alarm_on = True
+last_relay_state = None
 
 
 def beep(frequency=880, duration=0.2):
@@ -48,7 +48,7 @@ def activate_alarm_sound():
 
 
 last_beep = time.monotonic()
-beep_duration = 0.2  # duración del beep en segundos
+beep_duration = 0.2
 beep_active = False
 
 
@@ -60,13 +60,11 @@ def activate_alarm_nonblocking():
     now = time.monotonic()
 
     if not beep_active and now - last_beep >= 2.0:
-        # encender buzzer
         buzzer.duty_cycle = 2**15
         last_beep = now
         beep_active = True
 
     elif beep_active and now - last_beep >= beep_duration:
-        # apagar buzzer
         buzzer.duty_cycle = 0
         beep_active = False
 
@@ -132,9 +130,6 @@ def handle_ir_signal():
         print("No se detectó una señal IR válida.")
 
 
-last_relay_state = None
-
-
 def check_temp_and_humidity():
     global alarm_on, warning, last_relay_state
     try:
@@ -143,30 +138,21 @@ def check_temp_and_humidity():
         humidity = dht_sensor.humidity
 
         # Estado actual del relé según temperatura/humedad
-        current_relay_state = temperature_c > 20 or humidity > 100
+        current_relay_state = temperature_c > 27 or humidity > 80
         relay.value = current_relay_state
 
         # Detectar cambio de estado o primera lectura
         if current_relay_state != last_relay_state or last_relay_state is None:
             if current_relay_state and alarm_on:
-                # Condición de alerta
-                if temperature_c > 20 and humidity > 70:
-                    print(
-                        f"Temperatura mayor a 27 °C y humedad mayor a 80% | T: {temperature_c:.1f}°C | H: {humidity}% | Ventilador ON")
-                elif temperature_c > 20:
-                    print(
-                        f"Temperatura mayor a 27 °C | T: {temperature_c:.1f}°C | H: {humidity}% | Ventilador ON")
-                elif humidity > 80:
-                    print(
-                        f"Humedad mayor a 80% | T: {temperature_c:.1f}°C | H: {humidity}% | Ventilador ON")
-
                 if temperature_c > 20 or humidity > 90:
                     print(
-                        f"Temperatura mayor a 30 °C o humedad mayor a 80% | T: {temperature_c:.1f}°C | H: {humidity}% | Alarma ON")
+                        f"Temperatura mayor a 30 °C o humedad mayor a 90% | T: {temperature_c:.1f}°C | H: {humidity}% | Ventilador y Alarma ON")
                     warning = True
+                else:
+                    print(
+                        f"Temperatura mayor a 27 °C o humedad mayor a 80% | T: {temperature_c:.1f}°C | H: {humidity}% | Ventilador ON")
 
             elif not current_relay_state and (warning or last_relay_state is None):
-                # Condición estable
 
                 if warning:
                     alarm_turnOnOff_sound()
@@ -174,7 +160,6 @@ def check_temp_and_humidity():
                 print(
                     f"Temperatura y humedad estables | T: {temperature_c:.1f}°C | H: {humidity}% | Ventilador OFF")
 
-        # Actualizo el estado anterior
         last_relay_state = current_relay_state
 
     except RuntimeError as error:
