@@ -24,8 +24,7 @@ ir_sensor = pulseio.PulseIn(IR_PIN, maxlen=120, idle_state=True)
 buzzer = pwmio.PWMOut(BUZZER_PIN, duty_cycle=0,
                       frequency=800, variable_frequency=True)
 
-led = digitalio.DigitalInOut(LED_PIN)
-led.direction = digitalio.Direction.OUTPUT
+led = pwmio.PWMOut(LED_PIN, frequency=5000, duty_cycle=0)
 
 relay = digitalio.DigitalInOut(RELAY_PIN)
 relay.direction = digitalio.Direction.OUTPUT
@@ -117,7 +116,7 @@ def handle_ir_signal():
             elif CODE_CONCAT == IR_CODE_RESET and not warning:
                 print(f"Recibido: {CODE_CONCAT} | Alarma reseteada")
                 CODE.clear()
-                led.value = False
+                led.duty_cycle = 0
                 alarm_on = True
                 last_relay_state = None
 
@@ -185,17 +184,12 @@ def check_temp_and_humidity():
         raise error
 
 
-last_toggle = time.monotonic()
-led_state = False
-
-
-def activate_led(interval=1.0):
-    global led_state, last_toggle
+def activate_led(speed=1.0):
     now = time.monotonic()
-    if now - last_toggle >= interval:
-        led_state = not led_state
-        led.value = led_state
-        last_toggle = now
+    # seno va de -1 a 1, lo normalizamos a 0..1
+    value = (math.sin(now * speed) + 1) / 2
+    # convertir 0..1 a 0..65535 (rango de duty_cycle)
+    led.duty_cycle = int(value * 65535)
 
 
 print("-----------------------------")
@@ -212,4 +206,4 @@ while True:
         activate_alarm_nonblocking()
 
     if not alarm_on:
-        activate_led(interval=1.0)
+        activate_led(speed=1.5)
