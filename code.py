@@ -47,9 +47,11 @@ def activate_alarm_sound():
     time.sleep(0.2)
     beep()
 
+
 last_beep = time.monotonic()
 beep_duration = 0.2  # duración del beep en segundos
 beep_active = False
+
 
 def activate_alarm_nonblocking():
     """
@@ -57,7 +59,7 @@ def activate_alarm_nonblocking():
     """
     global last_beep, beep_active
     now = time.monotonic()
-    
+
     if not beep_active and now - last_beep >= 2.0:
         # encender buzzer
         buzzer.duty_cycle = 2**15
@@ -78,13 +80,13 @@ def alarm_turnOnOff_sound():
 
 
 def handle_ir_signal():
-    global alarm_on, warning
+    global alarm_on, warning, last_relay_state
     try:
         pulses = decoder.read_pulses(ir_sensor)
         received_code = decoder.decode_bits(pulses)
         if received_code:
             hex_code = ''.join(["%02X" % x for x in received_code])
-            
+
             if len(CODE) == 0 and hex_code == "00FD807F":
                 CODE.append(hex_code)
 
@@ -111,19 +113,19 @@ def handle_ir_signal():
                 alarm_turnOnOff_sound()
                 warning = False
                 alarm_on = False
-                    
+
             elif CODE_CONCAT == IR_CODE_RESET and not warning:
                 print(f"Recibido: {CODE_CONCAT} | Alarma reseteada")
                 CODE.clear()
                 led.value = False
                 alarm_on = True
+                last_relay_state = None
 
             else:
                 if CODE_CONCAT == "" and alarm_on:
                     print(f"Código invalido | alarma activa")
                 elif CODE_CONCAT == "" and not alarm_on:
                     print(f"Código invalido | alarma inactiva")
-             
 
     except adafruit_irremote.IRNECRepeatException:
         pass
@@ -131,16 +133,18 @@ def handle_ir_signal():
         print("No se detectó una señal IR válida.")
 
 
-last_relay_state = None  
+last_relay_state = None
+
 
 def check_temp_and_humidity():
     global alarm_on, warning, last_relay_state
     try:
+
         temperature_c = dht_sensor.temperature
         humidity = dht_sensor.humidity
 
         # Estado actual del relé según temperatura/humedad
-        current_relay_state = temperature_c > 20 or humidity > 80
+        current_relay_state = temperature_c > 20 or humidity > 100
         relay.value = current_relay_state
 
         # Detectar cambio de estado o primera lectura
@@ -148,15 +152,28 @@ def check_temp_and_humidity():
             if current_relay_state and alarm_on:
                 # Condición de alerta
                 if temperature_c > 20 and humidity > 70:
-                    print(f"Temperatura mayor a 27 °C y humedad mayor a 80% |  T: {temperature_c:.1f}°C | H: {humidity}% | Ventilador ON")
-                elif humidity > 70:
-                    print(f"Temperatura mayor a 27 °C |  T: {temperature_c:.1f}°C | H: {humidity}% | Ventilador ON")
-                warning = True
+                    print(
+                        f"Temperatura mayor a 27 °C y humedad mayor a 80% | T: {temperature_c:.1f}°C | H: {humidity}% | Ventilador ON")
+                elif temperature_c > 20:
+                    print(
+                        f"Temperatura mayor a 27 °C | T: {temperature_c:.1f}°C | H: {humidity}% | Ventilador ON")
+                elif humidity > 80:
+                    print(
+                        f"Humedad mayor a 80% | T: {temperature_c:.1f}°C | H: {humidity}% | Ventilador ON")
+
+                if temperature_c > 20 or humidity > 90:
+                    print(
+                        f"Temperatura mayor a 30 °C o humedad mayor a 80% | T: {temperature_c:.1f}°C | H: {humidity}% | Alarma ON")
+                    warning = True
+
             elif not current_relay_state and (warning or last_relay_state is None):
                 # Condición estable
+
+                if warning:
+                    alarm_turnOnOff_sound()
                 warning = False
-                alarm_turnOnOff_sound()
-                print(f"Temperatura y humedad estables |  T: {temperature_c:.1f}°C | H: {humidity}% | Ventilador OFF")
+                print(
+                    f"Temperatura y humedad estables | T: {temperature_c:.1f}°C | H: {humidity}% | Ventilador OFF")
 
         # Actualizo el estado anterior
         last_relay_state = current_relay_state
@@ -168,24 +185,23 @@ def check_temp_and_humidity():
         raise error
 
 
-last_toggle = time.monotonic()  
+last_toggle = time.monotonic()
 led_state = False
 
+
 def activate_led(interval=1.0):
-    """Alterna el LED cada 'interval' segundos sin bloquear el programa."""
     global led_state, last_toggle
     now = time.monotonic()
     if now - last_toggle >= interval:
         led_state = not led_state
         led.value = led_state
         last_toggle = now
-    
+
 
 print("-----------------------------")
 print("Sistema de monitoreo iniciado")
 print("-----------------------------")
 while True:
-    
 
     if len(ir_sensor) > 0:
         handle_ir_signal()
