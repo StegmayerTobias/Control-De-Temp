@@ -6,6 +6,47 @@ import time
 import pwmio
 import digitalio
 import math
+import wifi
+import socketpool
+import adafruit_minimqtt.adafruit_minimqtt as MQTT
+
+
+# Configuración 
+SSID = ""
+PASSWORD = ""
+BROKER = ""  
+TOPIC = "casa/temperatura"
+
+print(f"Intentando conectar a {SSID}...")
+try:
+    wifi.radio.connect(SSID, PASSWORD)
+    print(f"Conectado a {SSID}")
+    print(f"Dirección IP: {wifi.radio.ipv4_address}")
+except Exception as e:
+    print(f"Error al conectar a WiFi: {e}")
+    while True:
+        pass 
+
+# Configuración MQTT 
+pool = socketpool.SocketPool(wifi.radio)
+
+def mqtt_connected(client, userdata, flags, rc):
+    print("Conectado al broker MQTT")
+
+def mqtt_disconnected(client, userdata, rc):
+    print("Desconectado del broker MQTT")
+
+# Broker propio
+mqtt_client = MQTT.MQTT(
+    broker=BROKER,
+    port=1883,
+    socket_pool=pool
+)
+
+mqtt_client.on_connect = mqtt_connected
+mqtt_client.on_disconnect = mqtt_disconnected
+
+mqtt_client.connect()
 
 
 DHT_PIN = board.GP15
@@ -33,28 +74,24 @@ warning = False
 alarm_on = True
 last_relay_state = None
 
+temperature_c = 0.0
+humidity = 0
 
-def beep(frequency=880, duration=0.2):
-    buzzer.duty_cycle = 2**15
-    buzzer.frequency = frequency
-    time.sleep(duration)
-    buzzer.duty_cycle = 0
+last_beep = time.monotonic()
+beep_duration = 0.2
+beep_active = False
 
+last_pub = 0
+PUB_INTERVAL = 5  
 
 def activate_alarm_sound():
     beep()
     time.sleep(0.2)
     beep()
 
-
-last_beep = time.monotonic()
-beep_duration = 0.2
-beep_active = False
-
-
-def activate_alarm_nonblocking():
+def activate_alarm():
     """
-    Hace que la alarma suene un beep cada 2 segundos sin bloquear el programa.
+    Hace sonar la alarma con un beep cada 2 segundos.
     """
     global last_beep, beep_active
     now = time.monotonic()
@@ -68,21 +105,36 @@ def activate_alarm_nonblocking():
         buzzer.duty_cycle = 0
         beep_active = False
 
+def beep(frequency=880, duration=0.2):
+    buzzer.duty_cycle = 2**15
+    buzzer.frequency = frequency
+    time.sleep(duration)
+    buzzer.duty_cycle = 0
 
 def alarm_turnOnOff_sound():
-    # Aca cambio el sonido del beep en frecuencia y velocidad para que indique que la alarma se desactivo
+    """
+    Dos beeps consecutivos que representan la desactivación de la alarma.
+    """
     beep(frequency=800, duration=0.06)
     time.sleep(0.06)
     beep(frequency=800, duration=0.06)
 
-
 def handle_ir_signal():
+    """
+    Espera en cada iteración señales IR. 
+    Los codigos que espera son: 
+    
+    * 1 + 2 + 3: para desactivar la alarma;
+    * on/off + on/off: para resetearla. 
+    """
+
     global alarm_on, warning, last_relay_state
     try:
         pulses = decoder.read_pulses(ir_sensor)
         received_code = decoder.decode_bits(pulses)
         if received_code:
             hex_code = ''.join(["%02X" % x for x in received_code])
+            
 
             if len(CODE) == 0 and hex_code == "00FD807F":
                 CODE.append(hex_code)
@@ -98,9 +150,11 @@ def handle_ir_signal():
 
             elif len(CODE) == 2 and hex_code == "00FDC03F":
                 CODE.append(hex_code)
-
+            
             else:
                 CODE.clear()
+
+            print(CODE)
 
             CODE_CONCAT = "".join(CODE)
             if CODE_CONCAT == IR_CODE_TURNOFF and warning:
@@ -127,38 +181,57 @@ def handle_ir_signal():
     except adafruit_irremote.IRNECRepeatException:
         pass
     except adafruit_irremote.IRDecodeException:
-        print("No se detectó una señal IR válida.")
+        pass
 
+def publish_data():
+    global last_pub
+    now = time.monotonic()
+    if now - last_pub >= PUB_INTERVAL:
+        try:
+            mqtt_client.publish(TOPIC, str(temperature_c))
+            last_pub = now
+            print(f"Publicando: {temperature_c}°C")
+        except Exception as e:
+            print(f"Error publicando MQTT: {e}")
 
 def check_temp_and_humidity():
-    global alarm_on, warning, last_relay_state
-    try:
+    """
+    Verifica en cada iteración la temperatura y la humedad.
 
+    * Temperatura > 25°C o Humedad > 80% => Ventilador activado (se activa relé);
+    * Temperatura > 30°C o Humedad > 90% => Se activa alarma.
+    """
+
+    global alarm_on, warning, last_relay_state, temperature_c, humidity 
+    try:
         temperature_c = dht_sensor.temperature
         humidity = dht_sensor.humidity
 
-        # Estado actual del relé según temperatura/humedad
-        current_relay_state = temperature_c > 27 or humidity > 80
+        current_relay_state = temperature_c > 25 or humidity > 80
         relay.value = current_relay_state
 
-        # Detectar cambio de estado o primera lectura
-        if current_relay_state != last_relay_state or last_relay_state is None:
-            if current_relay_state and alarm_on:
-                if temperature_c > 20 or humidity > 90:
-                    print(
-                        f"Temperatura mayor a 30 °C o humedad mayor a 90% | T: {temperature_c:.1f}°C | H: {humidity}% | Ventilador y Alarma ON")
-                    warning = True
-                else:
-                    print(
-                        f"Temperatura mayor a 27 °C o humedad mayor a 80% | T: {temperature_c:.1f}°C | H: {humidity}% | Ventilador ON")
-
-            elif not current_relay_state and (warning or last_relay_state is None):
-
-                if warning:
-                    alarm_turnOnOff_sound()
-                warning = False
+        if temperature_c > 30 or humidity > 90:
+            if not warning:
                 print(
-                    f"Temperatura y humedad estables | T: {temperature_c:.1f}°C | H: {humidity}% | Ventilador OFF")
+                    f"Alarma ON (T>30 o H>90) | T: {temperature_c:.1f}°C | H: {humidity}%")
+                warning = True
+                alarm_on = True
+        else:
+            if warning and (temperature_c < 30 and humidity < 90):
+                print(
+                    f"Alarma OFF | T: {temperature_c:.1f}°C | H: {humidity}%")
+                warning = False
+                alarm_on = False
+                alarm_turnOnOff_sound()
+
+        if current_relay_state != last_relay_state or last_relay_state is None:
+            if current_relay_state:
+                if not alarm_on:
+                    print(
+                        f"Ventilador ON (T>25 o H>80) | T: {temperature_c:.1f}°C | H: {humidity}%")
+            else:
+                print(
+                    f"Ventilador OFF | T: {temperature_c:.1f}°C | H: {humidity}%")
 
         last_relay_state = current_relay_state
 
@@ -168,8 +241,12 @@ def check_temp_and_humidity():
         dht_sensor.exit()
         raise error
 
-
 def activate_led(speed=1.0):
+    """
+    Activa el led cuando la alarma esta desactivada. El led modula su intensidad senoidalmente.
+    """
+
+
     now = time.monotonic()
     # seno va de -1 a 1, lo normalizamos a 0..1
     value = (math.sin(now * speed) + 1) / 2
@@ -181,14 +258,15 @@ print("-----------------------------")
 print("Sistema de monitoreo iniciado")
 print("-----------------------------")
 while True:
-
     if len(ir_sensor) > 0:
         handle_ir_signal()
 
     check_temp_and_humidity()
 
     if warning:
-        activate_alarm_nonblocking()
+        activate_alarm()
 
     if not alarm_on:
         activate_led(speed=1.5)
+
+    publish_data() 
