@@ -22,9 +22,7 @@ dht_sensor = adafruit_dht.DHT11(DHT_PIN)
 ir_sensor = pulseio.PulseIn(IR_PIN, maxlen=120, idle_state=True)
 buzzer = pwmio.PWMOut(BUZZER_PIN, duty_cycle=0,
                       frequency=800, variable_frequency=True)
-
 led = pwmio.PWMOut(LED_PIN, frequency=5000, duty_cycle=0)
-
 relay = digitalio.DigitalInOut(RELAY_PIN)
 relay.direction = digitalio.Direction.OUTPUT
 decoder = adafruit_irremote.GenericDecode()
@@ -33,28 +31,13 @@ warning = False
 alarm_on = True
 last_relay_state = None
 
-
-def beep(frequency=880, duration=0.2):
-    buzzer.duty_cycle = 2**15
-    buzzer.frequency = frequency
-    time.sleep(duration)
-    buzzer.duty_cycle = 0
-
-
-def activate_alarm_sound():
-    beep()
-    time.sleep(0.2)
-    beep()
-
-
 last_beep = time.monotonic()
 beep_duration = 0.2
 beep_active = False
 
-
-def activate_alarm_nonblocking():
+def activate_alarm():
     """
-    Hace que la alarma suene un beep cada 2 segundos sin bloquear el programa.
+    Hace sonar la alarma con un beep cada 2 segundos.
     """
     global last_beep, beep_active
     now = time.monotonic()
@@ -68,15 +51,29 @@ def activate_alarm_nonblocking():
         buzzer.duty_cycle = 0
         beep_active = False
 
+def beep(frequency=880, duration=0.2):
+    buzzer.duty_cycle = 2**15
+    buzzer.frequency = frequency
+    time.sleep(duration)
+    buzzer.duty_cycle = 0
 
 def alarm_turnOnOff_sound():
-    # Aca cambio el sonido del beep en frecuencia y velocidad para que indique que la alarma se desactivo
+    """
+    Dos beeps consecutivos que representan la desactivación de la alarma.
+    """
     beep(frequency=800, duration=0.06)
     time.sleep(0.06)
     beep(frequency=800, duration=0.06)
 
-
 def handle_ir_signal():
+    """
+    Espera en cada iteración señales IR. 
+    Los codigos que espera son: 
+    
+    * 1 + 2 + 3: para desactivar la alarma;
+    * on/off + on/off: para resetearla. 
+    """
+
     global alarm_on, warning, last_relay_state
     try:
         pulses = decoder.read_pulses(ir_sensor)
@@ -129,19 +126,23 @@ def handle_ir_signal():
     except adafruit_irremote.IRDecodeException:
         print("No se detectó una señal IR válida.")
 
-
 def check_temp_and_humidity():
+    """
+    Verifica en cada iteración la temperatura y la humedad.
+
+    * Temperatura > 25°C o Humedad > 80% => Ventilador activado (se activa relé);
+    * Temperatura > 30°C o Humedad > 90% => Se activa alarma.
+    """
+
     global alarm_on, warning, last_relay_state
     try:
 
         temperature_c = dht_sensor.temperature
         humidity = dht_sensor.humidity
 
-        # Estado actual del relé según temperatura/humedad
-        current_relay_state = temperature_c > 27 or humidity > 80
+        current_relay_state = temperature_c > 25 or humidity > 80
         relay.value = current_relay_state
 
-        # Detectar cambio de estado o primera lectura
         if current_relay_state != last_relay_state or last_relay_state is None:
             if current_relay_state and alarm_on:
                 if temperature_c > 20 or humidity > 90:
@@ -150,7 +151,7 @@ def check_temp_and_humidity():
                     warning = True
                 else:
                     print(
-                        f"Temperatura mayor a 27 °C o humedad mayor a 80% | T: {temperature_c:.1f}°C | H: {humidity}% | Ventilador ON")
+                        f"Temperatura mayor a 25 °C o humedad mayor a 80% | T: {temperature_c:.1f}°C | H: {humidity}% | Ventilador ON")
 
             elif not current_relay_state and (warning or last_relay_state is None):
 
@@ -168,18 +169,20 @@ def check_temp_and_humidity():
         dht_sensor.exit()
         raise error
 
-
 def activate_led(speed=1.0):
+    """
+    Activa el led cuando la alarma esta desactivada. El led modula su intensidad senoidalmente.
+    """
     now = time.monotonic()
     # seno va de -1 a 1, lo normalizamos a 0..1
     value = (math.sin(now * speed) + 1) / 2
     # convertir 0..1 a 0..65535 (rango de duty_cycle)
     led.duty_cycle = int(value * 65535)
 
-
 print("-----------------------------")
 print("Sistema de monitoreo iniciado")
 print("-----------------------------")
+
 while True:
 
     if len(ir_sensor) > 0:
@@ -188,7 +191,7 @@ while True:
     check_temp_and_humidity()
 
     if warning:
-        activate_alarm_nonblocking()
+        activate_alarm()
 
     if not alarm_on:
         activate_led(speed=1.5)
