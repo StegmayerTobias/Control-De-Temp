@@ -13,7 +13,7 @@ En primer lugar, el sensor KY-015, encargado de medir tanto la temperatura como 
 
 Para accionar la refrigeración, el sistema cuenta con un relé KY-019, que simula el encendido de un ventilador industrial. Su activación ocurre tanto cuando la temperatura supera los 25 °C como cuando la humedad se encuentra fuera de los límites seguros, superior al 80%.
 
-El buzzer pasivo KY-006 tiene la función de actuar como alarma sonora. Su activación ocurre cuando la temperatura supera los 30 °C o cuando la humedad alcanza valores superiores al 90%. En estas situaciones, la alarma emite dos pitidos consecutivos cada 2 segundos de manera indefinida, hasta que las condiciones de la sala se estabilicen en intervalos normales de temperatura y humedad o se desactive manualmente.
+El buzzer pasivo KY-006 tiene la función de actuar como alarma sonora. Su activación ocurre cuando la temperatura supera los 30 °C o cuando la humedad alcanza valores superiores al 90%. En estas situaciones, la alarma suena cada 2 segundos de manera indefinida, hasta que las condiciones de la sala se estabilicen en intervalos normales de temperatura y humedad o se desactive manualmente.
 
 Para la desactivación manual, el receptor infrarrojo KY-022 permite al operador autorizado silenciar la alarma utilizando un control remoto preconfigurado. El sistema solo reconoce un código IR específico evitando desactivaciones accidentales por señales externas. El código consiste en la concatenación de las señales 00FD807F + 00FD40BF + 00FDC03F , que equivale a presionar los botones “1”, ”2” y “3”; en ese orden. Esta acción se considera parte de un protocolo de seguridad, de manera que la alarma puede silenciarse únicamente mientras se aplican medidas correctivas.  
 
