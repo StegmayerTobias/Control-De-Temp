@@ -69,6 +69,7 @@ Cómo funciona:
     - 1883 es el puerto estándar para el protocolo MQTT.
 - **Node-RED (en la PC)**: Se conecta al broker MQTT, escucha los datos (`datos/#`) y muestra cada valor en gráficos, indicadores, contadores, etc. según corresponda.
     - Lo instalamos https://nodered.org/docs/getting-started/windows, y ejecutamos el comando `node-red` , luego podremos abrir el servidor donde esta corriendo.
+    - Debemos instalar la extensión (`@flowfuse/node-red-dashboard`) para tener acceso a distintos tipos de graficos.
 
 ### Librerías
 
