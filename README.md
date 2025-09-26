@@ -54,7 +54,7 @@ Cómo funciona:
 
 ### Arquitectura
 
-<img width="933" height="618" alt="image" src="https://github.com/user-attachments/assets/b9df67ba-5fc2-4ae1-88b9-9b8fdd42646e" />
+<img width="1052" height="581" alt="arq red de microcontroladores" src="https://github.com/user-attachments/assets/646a09d6-f5be-4168-982a-3d606d9dbfac" />
 
 - **Sensores (12 microcontroladores Pico 2W)**: Cada uno publica sus datos (temperatura, humedad, movimiento, etc.) en un topic MQTT único.
 - **Controlador Maestro (1 microcontrolador Pico 2W extra)**: Se suscribe a todos los sensores y centraliza la información en un solo topic (datos).
@@ -82,6 +82,32 @@ Las librerías son:
 - `/lib/adafruit_connection_manager.mpy`: Módulo que necesita minimqtt.
 - `/lib/adafruit_esp32spi_socketpool.mpy`: Módulo para conectarnos a la red.
 
+### Descubrimiento automático de sensores
+
+Cuando un sensor se conecta a la red, además de comenzar a publicar sus datos periódicamente, envía un mensaje de anuncio al tema especial `descubrir/sensores`.
+
+El mensaje contiene la información mínima necesaria para que el maestro lo identifique, por ejemplo en formato JSON:
+
+```json
+{
+  "id": "temp_y_humedad",
+  "topic": "/sensores/temp_y_humedad"
+}
+
+```
+
+El maestro está suscripto al tema `descubrir/sensores`. Cada vez que se publica en el, lo interpreta como un sensor recientemente conectado y lo agrega a una lista de sensores conocidos (un diccionario con `id → topic`). Luego, se suscribe dinámicamente al `topic` de ese sensor para empezar a recibir sus datos en tiempo real.
+
+### Node-red
+
+El maestro centraliza toda la información que recibe y la publica en el tema `/datos/.`
+
+Por ejemplo:
+
+- `/datos/temp_y_humedad` → contiene `{ "temperatura": 22.5, "humedad": 70 }`
+- `/datos/movimiento` → contiene `{ "movimiento": 1 }`
+
+De esta forma, Node-RED solo necesita escuchar `datos/#` para recibir en tiempo real toda la información de la red de sensores.
 ### Configuración de los microcontroladores
 
 ```python
