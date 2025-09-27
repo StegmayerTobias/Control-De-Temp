@@ -6,6 +6,7 @@ import time
 import pwmio
 import digitalio
 import math
+import json
 import wifi
 import socketpool
 import adafruit_minimqtt.adafruit_minimqtt as MQTT
@@ -15,7 +16,9 @@ import adafruit_minimqtt.adafruit_minimqtt as MQTT
 SSID = ""
 PASSWORD = ""
 BROKER = ""  
-TOPIC = "casa/temperatura"
+NOMBRE_EQUIPO = "relay"
+DESCOVERY_TOPIC = "descubrir"
+TOPIC = f"sensores/{NOMBRE_EQUIPO}"
 
 print(f"Intentando conectar a {SSID}...")
 try:
@@ -30,21 +33,17 @@ except Exception as e:
 # Configuración MQTT 
 pool = socketpool.SocketPool(wifi.radio)
 
-def mqtt_connected(client, userdata, flags, rc):
+def connect(client, userdata, flags, rc):
     print("Conectado al broker MQTT")
+    client.publish(DESCOVERY_TOPIC, json.dumps({"equipo": NOMBRE_EQUIPO,"magnitudes": ["temperatura", "humedad"]}))
 
-def mqtt_disconnected(client, userdata, rc):
-    print("Desconectado del broker MQTT")
-
-# Broker propio
 mqtt_client = MQTT.MQTT(
     broker=BROKER,
     port=1883,
     socket_pool=pool
 )
 
-mqtt_client.on_connect = mqtt_connected
-mqtt_client.on_disconnect = mqtt_disconnected
+mqtt_client.on_connect = connect
 
 mqtt_client.connect()
 
@@ -82,12 +81,27 @@ beep_duration = 0.2
 beep_active = False
 
 last_pub = 0
-PUB_INTERVAL = 5  
+PUB_INTERVAL = 5 
 
-def activate_alarm_sound():
-    beep()
-    time.sleep(0.2)
-    beep()
+def publish():
+    global last_pub
+    now = time.monotonic()
+   
+    if now - last_pub >= PUB_INTERVAL:
+        try:
+            temp_topic = f"{TOPIC}/temperatura" 
+            mqtt_client.publish(temp_topic, str(temperature_c))
+            print(f"Publicando Temperatura: {temp_topic} -> {temperature_c}")
+            
+            hum_topic = f"{TOPIC}/humedad" 
+            mqtt_client.publish(hum_topic, str(humidity))
+            print(f"Publicando Humedad: {hum_topic} -> {humidity}")
+            
+            last_pub = now
+          
+        except Exception as e:
+            print(f"Error publicando MQTT: {e}")
+
 
 def activate_alarm():
     """
@@ -138,7 +152,7 @@ def handle_ir_signal():
 
             if len(CODE) == 0 and hex_code == "00FD807F":
                 CODE.append(hex_code)
-
+        
             elif len(CODE) == 0 and hex_code == "00FDB04F":
                 CODE.append(hex_code)
 
@@ -165,7 +179,7 @@ def handle_ir_signal():
                 warning = False
                 alarm_on = False
 
-            elif CODE_CONCAT == IR_CODE_RESET and not warning:
+            elif CODE_CONCAT == IR_CODE_RESET and not alarm_on:
                 print(f"Recibido: {CODE_CONCAT} | Alarma reseteada")
                 CODE.clear()
                 led.duty_cycle = 0
@@ -183,17 +197,6 @@ def handle_ir_signal():
     except adafruit_irremote.IRDecodeException:
         pass
 
-def publish_data():
-    global last_pub
-    now = time.monotonic()
-    if now - last_pub >= PUB_INTERVAL:
-        try:
-            mqtt_client.publish(TOPIC, str(temperature_c))
-            last_pub = now
-            print(f"Publicando: {temperature_c}°C")
-        except Exception as e:
-            print(f"Error publicando MQTT: {e}")
-
 def check_temp_and_humidity():
     """
     Verifica en cada iteración la temperatura y la humedad.
@@ -210,12 +213,11 @@ def check_temp_and_humidity():
         current_relay_state = temperature_c > 25 or humidity > 80
         relay.value = current_relay_state
 
-        if temperature_c > 30 or humidity > 90:
+        if temperature_c > 30 or humidity > 90 and alarm_on:
             if not warning:
                 print(
                     f"Alarma ON (T>30 o H>90) | T: {temperature_c:.1f}°C | H: {humidity}%")
                 warning = True
-                alarm_on = True
         else:
             if warning and (temperature_c < 30 and humidity < 90):
                 print(
@@ -263,10 +265,10 @@ while True:
 
     check_temp_and_humidity()
 
-    if warning:
+    if warning and alarm_on:
         activate_alarm()
 
     if not alarm_on:
         activate_led(speed=1.5)
 
-    publish_data() 
+    publish() 
