@@ -7,7 +7,7 @@ sensores_conocidos = {}
 
 SSID = ""
 PASSWORD = ""
-BROKER = ""  
+BROKER = ""
 PULL_TOPIC = "sensores"
 PUSH_TOPIC = "mediciones"
 DESCOVERY_TOPIC = "descubrir"
@@ -20,34 +20,34 @@ try:
 except Exception as e:
     print(f"Error al conectar a WiFi: {e}")
     while True:
-        pass 
-    
+        pass
+
 pool = socketpool.SocketPool(wifi.radio)
 
 
 # Conexión y funciones del broker de los sensores
 def connect_sensors(client, userdata, flags, rc):
-  print("Conectado al broker MQTT en puerto 1883")
-  client.subscribe(DESCOVERY_TOPIC)
+    print("Conectado al broker MQTT en puerto 1883")
+    client.subscribe(DESCOVERY_TOPIC)
+
 
 def subscribe(mqtt_client, userdata, topic, granted_qos):
     print(f"Maestro suscrito a {topic}")
 
-def on_message_sensores(client, userdata, msg):
-    global sensores_conocidos
 
-    topic = msg.topic
-    payload = msg.payload.decode("utf-8")
+def on_message_sensores(client, topic, msg):
+    global sensores_conocidos
 
     if topic == DESCOVERY_TOPIC:
         try:
-            data = json.loads(payload)
+            data = json.loads(msg)
             equipo = data.get("equipo")
             magnitudes = data.get("magnitudes", [])
 
             if equipo not in sensores_conocidos:
                 sensores_conocidos[equipo] = magnitudes
-                print(f"Nuevo equipo descubierto: {equipo}, magnitudes: {magnitudes}")
+                print(
+                    f"Nuevo equipo descubierto: {equipo}, magnitudes: {magnitudes}")
 
                 for mag in magnitudes:
                     sensor_topic = f"{PULL_TOPIC}/{equipo}/{mag}"
@@ -58,17 +58,17 @@ def on_message_sensores(client, userdata, msg):
         except Exception as e:
             print(f"Error en descubrimiento: {e}")
 
-  
     elif topic.startswith(PULL_TOPIC):
         try:
             partes = topic.split("/")
             if len(partes) == 3:
                 _, equipo, magnitud = partes
                 new_topic = f"{PUSH_TOPIC}/{equipo}/{magnitud}"
-                print(f"Reenviando: {topic} -> {new_topic} | Valor: {payload}")
-                client_nodeRed.publish(new_topic, payload)
+                print(f"Reenviando: {topic} -> {new_topic} | Valor: {msg}")
+                client_nodeRed.publish(new_topic, msg)
         except Exception as e:
             print(f"Error reenviando medición: {e}")
+
 
 client_sensors = MQTT.MQTT(
     broker=BROKER,
@@ -86,6 +86,7 @@ client_sensors.connect()
 def connect_nodeRed(client, userdata, flags, rc):
     print("Conectado al broker MQTT en puerto 1884")
 
+
 client_nodeRed = MQTT.MQTT(
     broker=BROKER,
     port=1884,
@@ -98,4 +99,4 @@ client_nodeRed.connect()
 
 print("Maestro en ejecución...")
 while True:
-  client_sensors.loop()
+    client_sensors.loop()
