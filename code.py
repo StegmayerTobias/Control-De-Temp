@@ -12,10 +12,10 @@ import socketpool
 import adafruit_minimqtt.adafruit_minimqtt as MQTT
 
 
-# Configuración 
+# Configuración
 SSID = ""
 PASSWORD = ""
-BROKER = ""  
+BROKER = ""
 NOMBRE_EQUIPO = "relay"
 DESCOVERY_TOPIC = "descubrir"
 TOPIC = f"sensores/{NOMBRE_EQUIPO}"
@@ -28,14 +28,17 @@ try:
 except Exception as e:
     print(f"Error al conectar a WiFi: {e}")
     while True:
-        pass 
+        pass
 
-# Configuración MQTT 
+# Configuración MQTT
 pool = socketpool.SocketPool(wifi.radio)
+
 
 def connect(client, userdata, flags, rc):
     print("Conectado al broker MQTT")
-    client.publish(DESCOVERY_TOPIC, json.dumps({"equipo": NOMBRE_EQUIPO,"magnitudes": ["temperatura", "humedad"]}))
+    client.publish(DESCOVERY_TOPIC, json.dumps(
+        {"equipo": NOMBRE_EQUIPO, "magnitudes": ["temperatura", "humedad","IR"]}))
+
 
 mqtt_client = MQTT.MQTT(
     broker=BROKER,
@@ -81,27 +84,33 @@ beep_duration = 0.2
 beep_active = False
 
 last_pub = 0
-PUB_INTERVAL = 5 
+PUB_INTERVAL = 5
 
-def publish():
+def publish_temp_hum():
     global last_pub
     now = time.monotonic()
-   
+
     if now - last_pub >= PUB_INTERVAL:
         try:
-            temp_topic = f"{TOPIC}/temperatura" 
+            temp_topic = f"{TOPIC}/temperatura"
             mqtt_client.publish(temp_topic, str(temperature_c))
-            print(f"Publicando Temperatura: {temp_topic} -> {temperature_c}")
-            
-            hum_topic = f"{TOPIC}/humedad" 
+
+            hum_topic = f"{TOPIC}/humedad"
             mqtt_client.publish(hum_topic, str(humidity))
-            print(f"Publicando Humedad: {hum_topic} -> {humidity}")
-            
+
             last_pub = now
-          
+
         except Exception as e:
             print(f"Error publicando MQTT: {e}")
 
+def publish_IR(estado):
+    try:
+        ir_topic = f"{TOPIC}/IR"
+        mqtt_client.publish(ir_topic, str(estado).lower())
+
+
+    except Exception as e:
+        print(f"Error publicando MQTT: {e}")
 
 def activate_alarm():
     """
@@ -119,11 +128,13 @@ def activate_alarm():
         buzzer.duty_cycle = 0
         beep_active = False
 
+
 def beep(frequency=880, duration=0.2):
     buzzer.duty_cycle = 2**15
     buzzer.frequency = frequency
     time.sleep(duration)
     buzzer.duty_cycle = 0
+
 
 def alarm_turnOnOff_sound():
     """
@@ -133,11 +144,12 @@ def alarm_turnOnOff_sound():
     time.sleep(0.06)
     beep(frequency=800, duration=0.06)
 
+
 def handle_ir_signal():
     """
     Espera en cada iteración señales IR. 
     Los codigos que espera son: 
-    
+
     * 1 + 2 + 3: para desactivar la alarma;
     * on/off + on/off: para resetearla. 
     """
@@ -148,11 +160,10 @@ def handle_ir_signal():
         received_code = decoder.decode_bits(pulses)
         if received_code:
             hex_code = ''.join(["%02X" % x for x in received_code])
-            
 
             if len(CODE) == 0 and hex_code == "00FD807F":
                 CODE.append(hex_code)
-        
+
             elif len(CODE) == 0 and hex_code == "00FDB04F":
                 CODE.append(hex_code)
 
@@ -164,7 +175,7 @@ def handle_ir_signal():
 
             elif len(CODE) == 2 and hex_code == "00FDC03F":
                 CODE.append(hex_code)
-            
+
             else:
                 CODE.clear()
 
@@ -172,8 +183,8 @@ def handle_ir_signal():
 
             CODE_CONCAT = "".join(CODE)
             if CODE_CONCAT == IR_CODE_TURNOFF and warning:
-                print(f"Recibido: {CODE_CONCAT} | Alarma apagada")
-
+                print(f"Recibido: {CODE_CONCAT} | Alarma desactivada")
+                publish_IR(False)
                 CODE.clear()
                 alarm_turnOnOff_sound()
                 warning = False
@@ -181,6 +192,7 @@ def handle_ir_signal():
 
             elif CODE_CONCAT == IR_CODE_RESET and not alarm_on:
                 print(f"Recibido: {CODE_CONCAT} | Alarma reseteada")
+                publish_IR(True)
                 CODE.clear()
                 led.duty_cycle = 0
                 alarm_on = True
@@ -197,6 +209,7 @@ def handle_ir_signal():
     except adafruit_irremote.IRDecodeException:
         pass
 
+
 def check_temp_and_humidity():
     """
     Verifica en cada iteración la temperatura y la humedad.
@@ -205,7 +218,7 @@ def check_temp_and_humidity():
     * Temperatura > 30°C o Humedad > 90% => Se activa alarma.
     """
 
-    global alarm_on, warning, last_relay_state, temperature_c, humidity 
+    global alarm_on, warning, last_relay_state, temperature_c, humidity
     try:
         temperature_c = dht_sensor.temperature
         humidity = dht_sensor.humidity
@@ -243,11 +256,11 @@ def check_temp_and_humidity():
         dht_sensor.exit()
         raise error
 
+
 def activate_led(speed=1.0):
     """
     Activa el led cuando la alarma esta desactivada. El led modula su intensidad senoidalmente.
     """
-
 
     now = time.monotonic()
     # seno va de -1 a 1, lo normalizamos a 0..1
@@ -255,7 +268,7 @@ def activate_led(speed=1.0):
     # convertir 0..1 a 0..65535 (rango de duty_cycle)
     led.duty_cycle = int(value * 65535)
 
-
+publish_IR(True)
 print("-----------------------------")
 print("Sistema de monitoreo iniciado")
 print("-----------------------------")
@@ -271,4 +284,4 @@ while True:
     if not alarm_on:
         activate_led(speed=1.5)
 
-    publish() 
+    publish_temp_hum()
