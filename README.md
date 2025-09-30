@@ -183,7 +183,7 @@ mqtt_client.on_connect = connect
 mqtt_client.connect()
 
 # Usamos estas varaibles globales para controlar cada cuanto publicamos
-LAST_PUB = 0
+last_pub = 0
 PUB_INTERVAL = 5  
 def publish():
     global last_pub
