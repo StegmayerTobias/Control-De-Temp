@@ -54,7 +54,7 @@ Cómo funciona:
 
 ### Arquitectura
 
-<img width="1052" height="581" alt="image" src="https://github.com/user-attachments/assets/d3bbeac2-38c8-49ff-baa4-c61d600e88ed" />
+<img width="1052" height="581" alt="image" src="https://github.com/user-attachments/assets/bf514b11-8409-4225-9a2b-69cae70f4bcb" />
 
 
 - **Sensores (12 microcontroladores Pico 2W)**: Cada uno publica sus datos (temperatura, humedad, movimiento, etc.) en un topic MQTT único:
