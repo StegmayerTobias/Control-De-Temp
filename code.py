@@ -37,7 +37,7 @@ pool = socketpool.SocketPool(wifi.radio)
 def connect(client, userdata, flags, rc):
     print("Conectado al broker MQTT")
     client.publish(DESCOVERY_TOPIC, json.dumps(
-        {"equipo": NOMBRE_EQUIPO, "magnitudes": ["temperatura", "humedad","IR"]}))
+        {"equipo": NOMBRE_EQUIPO, "magnitudes": ["temperatura", "humedad", "IR"]}))
 
 
 mqtt_client = MQTT.MQTT(
@@ -86,7 +86,11 @@ beep_active = False
 last_pub = 0
 PUB_INTERVAL = 5
 
+
 def publish_temp_hum():
+    """
+    Publica el valor medido de temperatura y humedad cada 5 segundo.    
+    """
     global last_pub
     now = time.monotonic()
 
@@ -103,14 +107,18 @@ def publish_temp_hum():
         except Exception as e:
             print(f"Error publicando MQTT: {e}")
 
+
 def publish_IR(estado):
+    """
+    Publica un valor booleano. False = alarma desconectada; True = alarma conectada.
+    """
     try:
         ir_topic = f"{TOPIC}/IR"
         mqtt_client.publish(ir_topic, str(estado).lower())
 
-
     except Exception as e:
         print(f"Error publicando MQTT: {e}")
+
 
 def activate_alarm():
     """
@@ -222,7 +230,6 @@ def check_temp_and_humidity():
     try:
         temperature_c = dht_sensor.temperature
         humidity = dht_sensor.humidity
-
         current_relay_state = temperature_c > 25 or humidity > 80
         relay.value = current_relay_state
 
@@ -231,19 +238,16 @@ def check_temp_and_humidity():
                 print(
                     f"Alarma ON (T>30 o H>90) | T: {temperature_c:.1f}°C | H: {humidity}%")
                 warning = True
-        else:
-            if warning and (temperature_c < 30 and humidity < 90):
-                print(
-                    f"Alarma OFF | T: {temperature_c:.1f}°C | H: {humidity}%")
-                warning = False
-                alarm_on = False
-                alarm_turnOnOff_sound()
+        elif warning and (temperature_c < 30 and humidity < 90):
+            print(f"Alarma OFF | T: {temperature_c:.1f}°C | H: {humidity}%")
+            warning = False
+
+            alarm_turnOnOff_sound()
 
         if current_relay_state != last_relay_state or last_relay_state is None:
             if current_relay_state:
-                if not alarm_on:
-                    print(
-                        f"Ventilador ON (T>25 o H>80) | T: {temperature_c:.1f}°C | H: {humidity}%")
+                print(
+                    f"Ventilador ON (T>25 o H>80) | T: {temperature_c:.1f}°C | H: {humidity}%")
             else:
                 print(
                     f"Ventilador OFF | T: {temperature_c:.1f}°C | H: {humidity}%")
@@ -267,6 +271,7 @@ def activate_led(speed=1.0):
     value = (math.sin(now * speed) + 1) / 2
     # convertir 0..1 a 0..65535 (rango de duty_cycle)
     led.duty_cycle = int(value * 65535)
+
 
 publish_IR(True)
 print("-----------------------------")
