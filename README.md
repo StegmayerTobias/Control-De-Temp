@@ -131,7 +131,7 @@ El maestro está suscripto al tema `/descubrir/`. Cada vez que se publica en el,
 
 ### Node-red
 
-El maestro centraliza toda la información que recibe y la publica en el tema `/mediciones/#` , a traves del puerto 1884.
+El maestro centraliza toda la información que recibe y la publica en el tema `/mediciones/#/#/` , a traves del puerto 1884.
 
 Por ejemplo:
 
